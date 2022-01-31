@@ -1,31 +1,22 @@
 pragma solidity ^0.4.17;
+
+// import "hardhat/console.sol";
+
 contract FakeNewsFactory{
-    address[] public orgContracts;
-    mapping(address=>bool) public approvers;
-    uint approversCnt;
-    mapping(address=>address) managerOrganizationMapper;
-    mapping (address=> bool) checkManager;
+
+    mapping(address=>address) public managerOrganizationMapper;
+    mapping (address=> bool) public checkManager;
+    uint moneyToBeSentToPublishNews = 100;
+    uint thisMonthBalance = 0;
     
-    address[] public newsContracts;
-    address[] public newsForApproval;
-    
-    
-    function createOrg() public {
-        
-        require(checkManager[msg.sender] == false);
-        checkManager[msg.sender]=true;
-        address newOrg = new Organization(msg.sender);
-        orgContracts.push(newOrg);
-        if(approversCnt<=10){
-            approversCnt++;
-            approvers[newOrg]=true;
-        }
-        managerOrganizationMapper[msg.sender]=newOrg;
-    }
-    
-    function getApproverCnt() public view returns(uint){
-        return approversCnt;
-    }
+    function createOrg() public returns(address) {  
+        address sender = msg.sender;      
+        require(checkManager[sender] == false);        
+        checkManager[sender]=true;
+        address newOrg = new Organization(sender);
+        managerOrganizationMapper[sender]=newOrg;
+        return newOrg;
+    }    
     
     function getOrganization() public view returns(address){
         return managerOrganizationMapper[msg.sender];
@@ -34,51 +25,31 @@ contract FakeNewsFactory{
     function getOrgBasedOnSender(address sender) public view returns(address){
         return managerOrganizationMapper[sender];
     }
-    
-    function getAllOrganizations() public view returns(address[]){
-        return orgContracts;
-    }
-    
-    function addToApprovers(address org) public{
-        approvers[org] = true;
-    }
-    
-    function removeFromApprovers(address org) public{
-        approvers[org] = false;
-    }
-    
-    function isApprover(address sender) public view returns(bool){
-        return approvers[managerOrganizationMapper[sender]];
+
+    function createNews(string t, string c, string sd, string ed) public payable{
+        require(msg.value>=moneyToBeSentToPublishNews);
+        thisMonthBalance+=msg.value;
+        address sender = msg.sender;
+        address orgAddress = managerOrganizationMapper[sender];
+        address newNews = new News(sender, t, c, sd, ed, orgAddress);
+        
+        Organization temp = Organization(orgAddress);
+        temp.addNewNews(newNews);
     }
 
-    function updateApproversMapping(address approvalAddressTemp, bool value) public{
-        approvers[approvalAddressTemp]=value;
-        if(value==false){
-            approversCnt--;
-        }
-        else{
-            approversCnt++;
-        }
+    function getBalance() public view returns(uint){
+        return thisMonthBalance;
     }
 
-    function createNews(string t, string c, string sd, string ed) public {
-        address orgAddress = managerOrganizationMapper[msg.sender];
-        address newNews = new News(msg.sender, t, c, sd, ed,FakeNewsFactory(this) ,orgAddress);
-        newsContracts.push(newNews);
-        newsForApproval.push(newNews);
-        Organization(orgAddress).addNewNews(newNews);
+    function getContractBalance() public view returns(uint){
+        return address(this).balance;
     }
-    function getNewsForApproval() public view returns(address[]){
-        return newsForApproval;
+    function sendMoneyToWinner(address add) public {
+        uint half = (thisMonthBalance)/2;
+        // console.log(half);
+        add.transfer(half);
+        thisMonthBalance=0;
     }
-    function getNewsForApprovalLength() public view returns(uint){
-        return newsForApproval.length;
-    }
-
-    function getNewsForApprovalIndex(uint index) public view returns(address){
-        return newsForApproval[index];
-    }
-    
 }
 
 contract Organization{
@@ -92,7 +63,9 @@ contract Organization{
     constructor(address creater) public{
         manager = creater;
     }
-    
+    function newspublishedArray() public view returns(address[]){
+        return newspublished;
+    }
     function modifyReputationScore(int value) public{
         reputationScore=reputationScore+value;
     }
@@ -105,7 +78,6 @@ contract Organization{
         newspublished.push(news);
     }
 
-    
     function updateOrgDetails(string name, string description) public {
         orgName = name;
         orgDescription = description;
@@ -114,18 +86,16 @@ contract Organization{
 
 contract News{
     address public manager;
-    address[] public positiveApprovers;
-    address[] public negativeApprovers;
     uint public positiveApproversCnt;
     uint public negativeApproversCnt;
     mapping(address=>bool) public voted;
-    string startDate;
-    string endDate;
-    string title;
-    string content;
+    string public startDate;
+    string public endDate;
+    string public title;
+    string public content;
     
     FakeNewsFactory factory;
-    Organization theOrganization;
+    Organization organizationContract;
     address organizationAddress;
     
     
@@ -137,18 +107,16 @@ contract News{
     
     int threshold = 5;
     
-    constructor(address creater, string t, string c, string sd, string ed, address factoryAddress, address orgAddress) public{
+    constructor(address creater, string t, string c, string sd, string ed, address orgAddress) public{
         manager = creater;
         title = t;
         content = c;
         startDate = sd;
         endDate = ed;
-        factory = FakeNewsFactory(factoryAddress);
-        theOrganization = Organization(orgAddress);
+        organizationContract = Organization(orgAddress);
         organizationAddress = orgAddress;
-        positiveApprovers.push(orgAddress);
-        voted[orgAddress]=true;
-        positiveApproversCnt+=1;
+        positiveApproversCnt=0;
+        negativeApproversCnt=0;
         
         Info storage f = inf[1];
         f.isValid=false;
@@ -163,6 +131,20 @@ contract News{
             startDate,
             inf[1].stillOpen
         );
+    }
+
+    function getEndDate() public view returns(string){
+        return endDate;
+    }
+
+    function vote(bool approve) public{
+        require(voted[msg.sender]==false);
+        voted[msg.sender]=true;
+        if(approve){
+            positiveApproversCnt+=1;
+        }else{
+            negativeApproversCnt-=1;
+        }
     }
     
 }
